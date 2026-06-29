@@ -1,0 +1,317 @@
+# ============================================================
+
+# УСТАНОВКА БИБЛИОТЕК
+
+# ============================================================
+
+# Устанавливаем необходимые библиотеки для работы в Google Colab.
+
+# Если библиотека уже установлена, Colab просто пропустит повторную установку.
+
+!pip install numpy matplotlib scipy
+
+ 
+# Импортируем библиотеки
+
+import os                                      # Работа с папками и файлами
+
+import numpy as np                             # NumPy - массивы и математические операции
+
+import matplotlib.pyplot as plt                # Matplotlib - графики и изображения
+
+ 
+# Создаём папку для сохранения итоговых картинок
+
+os.makedirs("images", exist_ok=True)
+
+ 
+print("="*70)
+
+print("K-MEANS ДЛЯ КЛАСТЕРИЗАЦИИ ЦВЕТОВ ИЗОБРАЖЕНИЯ")
+
+print("БЕЗ sklearn.cluster.KMeans")
+
+print("="*70)
+
+ 
+# ============================================================
+
+# 1. СОЗДАНИЕ ЦВЕТНОГО ИЗОБРАЖЕНИЯ
+
+# ============================================================
+
+print("\n[1/6] Создание цветного изображения...")
+
+ 
+def create_color_image(h=150, w=180):
+
+    img = np.zeros((h, w, 3), dtype=float)
+
+    img[:, :] = [0.12, 0.20, 0.35]
+
+    img[20:95, 25:95] = [0.85, 0.15, 0.15]
+
+    img[55:135, 105:165] = [0.15, 0.75, 0.25]
+
+    yy, xx = np.ogrid[:h, :w]
+
+    circle = (xx - 125)**2 + (yy - 45)**2 < 28**2
+
+    img[circle] = [0.95, 0.85, 0.20]
+
+    np.random.seed(4)
+
+    img = np.clip(img + np.random.randn(h, w, 3)*0.035, 0, 1)
+
+    return img
+
+ 
+image = create_color_image()
+
+h, w, ch = image.shape
+
+pixels = image.reshape(-1, 3)
+
+ 
+print(f"✓ Размер изображения: {w}×{h} px")
+
+print(f"✓ Пикселей: {len(pixels)}")
+
+ 
+# ============================================================
+
+# 2. НАЧАЛЬНЫЕ ЦЕНТРЫ
+
+# ============================================================
+
+print("\n[2/6] Инициализация центров...")
+
+ 
+def color_distance(a, b):
+
+    return np.sqrt(np.sum((a-b)**2))
+
+ 
+def init_centers(pixels, k, seed=8):
+
+    np.random.seed(seed)
+
+    idx = np.random.choice(len(pixels), k, replace=False)
+
+    return pixels[idx].copy()
+
+ 
+k = 4
+
+centers0 = init_centers(pixels, k)
+
+print("✓ Начальные центры:")
+
+for i, c in enumerate(centers0, 1):
+
+    print(f"  C{i}: R={c[0]:.3f}, G={c[1]:.3f}, B={c[2]:.3f}")
+
+ 
+# ============================================================
+
+# 3. НАЗНАЧЕНИЕ ПИКСЕЛЕЙ
+
+# ============================================================
+
+print("\n[3/6] Подготовка функции назначения пикселей к центрам...")
+
+ 
+def assign(pixels, centers):
+
+    labels = np.zeros(len(pixels), dtype=int)
+
+    sse = 0.0
+
+    for i in range(len(pixels)):
+
+        best = 0
+
+        best_d = color_distance(pixels[i], centers[0])
+
+        for c in range(1, len(centers)):
+
+            d = color_distance(pixels[i], centers[c])
+
+            if d < best_d:
+
+                best_d = d
+
+                best = c
+
+        labels[i] = best
+
+        sse += best_d**2
+
+    return labels, sse
+
+ 
+# ============================================================
+
+# 4. ИТЕРАЦИИ K-MEANS
+
+# ============================================================
+
+print("\n[4/6] Запуск K-means...")
+
+ 
+def update(pixels, labels, centers):
+
+    new = centers.copy()
+
+    for c in range(len(centers)):
+
+        group = pixels[labels == c]
+
+        if len(group) > 0:
+
+            new[c] = np.mean(group, axis=0)
+
+    return new
+
+ 
+def kmeans(pixels, k, max_iter=30, tol=1e-5):
+
+    centers = init_centers(pixels, k)
+
+    errors = []
+
+    for it in range(1, max_iter+1):
+
+        labels, sse = assign(pixels, centers)
+
+        new_centers = update(pixels, labels, centers)
+
+        move = np.sum(np.abs(new_centers - centers))
+
+        centers = new_centers
+
+        errors.append(sse)
+
+        print(f"  Итерация {it:02d}: SSE={sse:.5f}, смещение={move:.6f}")
+
+        if move < tol:
+
+            return labels, centers, errors, it
+
+    return labels, centers, errors, max_iter
+
+ 
+labels, centers, errors, iterations = kmeans(pixels, k)
+
+print(f"✓ Завершено за {iterations} итераций")
+
+ 
+# ============================================================
+
+# 5. СЕГМЕНТАЦИЯ
+# ============================================================
+
+print("\n[5/6] Формирование сегментированного изображения...")
+
+ 
+seg_pixels = np.zeros_like(pixels)
+
+for i in range(len(pixels)):
+
+    seg_pixels[i] = centers[labels[i]]
+
+seg_image = seg_pixels.reshape(h, w, 3)
+
+label_image = labels.reshape(h, w)
+
+ 
+for i, c in enumerate(centers, 1):
+
+    print(f"  C{i}: RGB=({c[0]:.3f}, {c[1]:.3f}, {c[2]:.3f}), пикселей={np.sum(labels==i-1)}")
+
+ 
+# ============================================================
+
+# 6. ВИЗУАЛИЗАЦИЯ И ОТЧЁТ
+
+# ============================================================
+
+print("\n[6/6] Визуализация результата...")
+
+ 
+plt.figure(figsize=(16, 10))
+
+plt.subplot(2,3,1); plt.imshow(image); plt.title("1. Исходное изображение"); plt.axis("off")
+
+plt.subplot(2,3,2); plt.imshow(label_image, cmap="tab10"); plt.title("2. Карта кластеров"); plt.axis("off")
+
+plt.subplot(2,3,3); plt.imshow(seg_image); plt.title("3. Сегментация K-means"); plt.axis("off")
+
+plt.subplot(2,3,4)
+
+sample = pixels[::20]; sample_labels = labels[::20]
+
+plt.scatter(sample[:,0], sample[:,1], c=sample_labels, cmap="tab10", s=8)
+
+plt.scatter(centers[:,0], centers[:,1], c="black", marker="X", s=180)
+
+plt.title("4. Цвета в пространстве R-G"); plt.xlabel("R"); plt.ylabel("G"); plt.grid(True)
+
+plt.subplot(2,3,5); plt.plot(range(1, len(errors)+1), errors, marker="o"); plt.title("5. SSE по итерациям"); plt.grid(True)
+
+plt.subplot(2,3,6); plt.axis("off")
+
+report = f"""ИТОГОВЫЙ ОТЧЁТ
+
+ 
+Размер: {w}×{h}
+
+Пикселей: {len(pixels)}
+
+Кластеров: {k}
+
+Итераций: {iterations}
+
+Финальная SSE:
+
+{errors[-1]:.4f}
+
+ 
+Вывод:
+
+изображение разделено
+
+на основные цветовые зоны."""
+
+plt.text(0.05, 0.95, report, va="top", family="monospace",
+
+         bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.9))
+
+plt.suptitle("K-MEANS: кластеризация цветов", fontsize=16, fontweight="bold")
+
+plt.tight_layout()
+
+plt.savefig("images/kmeans_full_report.png", dpi=200)
+
+plt.show()
+
+ 
+print("="*70)
+
+print("ИТОГОВЫЙ ОТЧЁТ")
+
+print("="*70)
+
+print(f"Кластеров: {k}")
+
+print(f"Итераций: {iterations}")
+
+print(f"Финальная SSE: {errors[-1]:.6f}")
+
+print("Файл результата: images/kmeans_full_report.png")
+
+print("✅ ГОТОВО")
+
+print("="*70)
+
+ 
